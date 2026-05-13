@@ -289,9 +289,7 @@ export default function VideoCall({ roomId, isHost, userName }) {
       setStatus(isHost ? 'waiting' : 'ended');
       stopStatsPoll();
       callRef.current = null;
-      if (isHost && activePeerIdRef.current === call.peer) {
-        activePeerIdRef.current = null;
-      }
+      clearActivePeerIfMatches(call.peer);
     });
 
     call.on('error', (err) => {
@@ -300,9 +298,7 @@ export default function VideoCall({ roomId, isHost, userName }) {
       console.error('Call error:', err);
       setError(translatePeerError(err));
       setStatus('error');
-      if (isHost && activePeerIdRef.current === call.peer) {
-        activePeerIdRef.current = null;
-      }
+      clearActivePeerIfMatches(call.peer);
     });
   }
 
@@ -338,9 +334,7 @@ export default function VideoCall({ roomId, isHost, userName }) {
     });
     conn.on('close', () => {
       dataConnRef.current = null;
-      if (isHost && activePeerIdRef.current === conn.peer && !callRef.current) {
-        activePeerIdRef.current = null;
-      }
+      clearActivePeerIfMatches(conn.peer, { requireNoCall: true });
     });
     conn.on('error', () => {
       // non-fatal; data channel is just for niceties
@@ -413,6 +407,13 @@ export default function VideoCall({ roomId, isHost, userName }) {
       clearInterval(statsTimerRef.current);
       statsTimerRef.current = null;
     }
+  }
+
+  function clearActivePeerIfMatches(peerId, options = {}) {
+    if (!isHost) return;
+    if (activePeerIdRef.current !== peerId) return;
+    if (options.requireNoCall && callRef.current) return;
+    activePeerIdRef.current = null;
   }
 
   function notifyRoomFull(conn) {
@@ -575,10 +576,11 @@ export default function VideoCall({ roomId, isHost, userName }) {
       <CallShell roomId={roomId}>
         <div className="card max-w-lg w-full mx-auto text-center">
           <div className="font-body text-xs tracking-[0.2em] text-signal mb-2">// ROOM FULL</div>
-          <h2 className="font-display text-4xl mb-3">Room is full, wait for your turn.</h2>
+          <h2 className="font-display text-4xl mb-3">Room is full.</h2>
           <p className="text-bone-200/70 mb-6">
-            The meeting <span className="font-body text-bone-100">{displayCode}</span>{' '}
-            already has two people. Try again once a slot opens.
+            Room is full, wait for your turn. The meeting{' '}
+            <span className="font-body text-bone-100">{displayCode}</span> already has two people.
+            Try again once a slot opens.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button onClick={() => router.reload()} className="btn-primary">
