@@ -214,10 +214,6 @@ export default function VideoCall({ roomId, isHost, userName }) {
     });
 
     peer.on('connection', (conn) => {
-      if (activePeerIdRef.current && activePeerIdRef.current !== conn.peer) {
-        notifyRoomFull(conn);
-        return;
-      }
       if (!activePeerIdRef.current) {
         activePeerIdRef.current = conn.peer;
       }
@@ -289,7 +285,7 @@ export default function VideoCall({ roomId, isHost, userName }) {
       setStatus(isHost ? 'waiting' : 'ended');
       stopStatsPoll();
       callRef.current = null;
-      clearActivePeerIfMatches(call.peer);
+      clearActivePeerIfMatchesForHost(call.peer);
     });
 
     call.on('error', (err) => {
@@ -298,7 +294,7 @@ export default function VideoCall({ roomId, isHost, userName }) {
       console.error('Call error:', err);
       setError(translatePeerError(err));
       setStatus('error');
-      clearActivePeerIfMatches(call.peer);
+      clearActivePeerIfMatchesForHost(call.peer);
     });
   }
 
@@ -334,7 +330,7 @@ export default function VideoCall({ roomId, isHost, userName }) {
     });
     conn.on('close', () => {
       dataConnRef.current = null;
-      clearActivePeerIfMatches(conn.peer, { requireNoCall: true });
+      clearActivePeerIfMatchesForHost(conn.peer, { requireNoCall: true });
     });
     conn.on('error', () => {
       // non-fatal; data channel is just for niceties
@@ -409,7 +405,7 @@ export default function VideoCall({ roomId, isHost, userName }) {
     }
   }
 
-  function clearActivePeerIfMatches(peerId, options = {}) {
+  function clearActivePeerIfMatchesForHost(peerId, options = {}) {
     if (!isHost) return;
     if (activePeerIdRef.current !== peerId) return;
     if (options.requireNoCall && callRef.current) return;
