@@ -21,7 +21,9 @@ import Wordmark from './Wordmark';
  *   'waiting'      — host is online, no peer joined yet
  *   'connecting'   — joiner is dialing the host
  *   'connected'    — both sides streaming
+ *   'full'         — room already has two participants
  *   'ended'        — remote left or call closed normally
+ *   'expired'      — meeting not found / ended
  *   'error'        — fatal error; user can retry / leave
  */
 export default function VideoCall({ roomId, isHost, userName }) {
@@ -55,6 +57,8 @@ export default function VideoCall({ roomId, isHost, userName }) {
   const statsTimerRef = useRef(null);
   const lastBytesRef = useRef({ ts: 0, bytes: 0, framesDecoded: 0, frameTs: 0 });
   const mountedRef = useRef(true);
+  const activePeerIdRef = useRef(null);
+  const roomFullRef = useRef(false);
 
   // ---- Validation ----
   useEffect(() => {
@@ -116,6 +120,7 @@ export default function VideoCall({ roomId, isHost, userName }) {
         // Attach a global error handler post-open for runtime errors
         peer.on('error', (err) => {
           if (!mountedRef.current) return;
+          if (roomFullRef.current) return;
           if (err.type === 'peer-unavailable' && !isHost) {
             // The host's peer id isn't registered with the broker. Could be:
             //   (a) The host just hit "create" and we beat their peer.on('open')
@@ -192,6 +197,13 @@ export default function VideoCall({ roomId, isHost, userName }) {
   // ---- Host: accept incoming call + data conn ----
   function setupHostHandlers(peer, stream) {
     peer.on('call', (incoming) => {
+      if (activePeerIdRef.current && activePeerIdRef.current !== incoming.peer) {
+        rejectIncomingCall(incoming);
+        return;
+      }
+      if (!activePeerIdRef.current) {
+        activePeerIdRef.current = incoming.peer;
+      }
       try {
         incoming.answer(stream);
         wireCall(incoming);
@@ -202,6 +214,13 @@ export default function VideoCall({ roomId, isHost, userName }) {
     });
 
     peer.on('connection', (conn) => {
+      if (activePeerIdRef.current && activePeerIdRef.current !== conn.peer) {
+        notifyRoomFull(conn);
+        return;
+      }
+      if (!activePeerIdRef.current) {
+        activePeerIdRef.current = conn.peer;
+      }
       attachDataConn(conn);
     });
   }
@@ -264,11 +283,15 @@ export default function VideoCall({ roomId, isHost, userName }) {
 
     call.on('close', () => {
       if (!mountedRef.current) return;
+      if (roomFullRef.current && !isHost) return;
       remoteStreamRef.current = null;
       setHasRemote(false);
       setStatus(isHost ? 'waiting' : 'ended');
       stopStatsPoll();
       callRef.current = null;
+      if (isHost && activePeerIdRef.current === call.peer) {
+        activePeerIdRef.current = null;
+      }
     });
 
     call.on('error', (err) => {
@@ -277,11 +300,18 @@ export default function VideoCall({ roomId, isHost, userName }) {
       console.error('Call error:', err);
       setError(translatePeerError(err));
       setStatus('error');
+      if (isHost && activePeerIdRef.current === call.peer) {
+        activePeerIdRef.current = null;
+      }
     });
   }
 
   function attachDataConn(conn) {
     if (!conn) return;
+    if (isHost && activePeerIdRef.current && activePeerIdRef.current !== conn.peer) {
+      notifyRoomFull(conn);
+      return;
+    }
     dataConnRef.current = conn;
 
     conn.on('open', () => {
@@ -294,6 +324,10 @@ export default function VideoCall({ roomId, isHost, userName }) {
       if (data.type === 'hello' && typeof data.name === 'string') {
         setPeerName(safeName(data.name));
       }
+      if (!isHost && data.type === 'room-full') {
+        handleRoomFull();
+        return;
+      }
       // Only the host can end the meeting. We differentiate by who's receiving:
       //   - guest receives 'host-end' (or legacy 'bye') → meeting is over → expire
       //   - host receives anything → ignore; if guest is leaving, call.on('close')
@@ -304,6 +338,9 @@ export default function VideoCall({ roomId, isHost, userName }) {
     });
     conn.on('close', () => {
       dataConnRef.current = null;
+      if (isHost && activePeerIdRef.current === conn.peer && !callRef.current) {
+        activePeerIdRef.current = null;
+      }
     });
     conn.on('error', () => {
       // non-fatal; data channel is just for niceties
@@ -376,6 +413,49 @@ export default function VideoCall({ roomId, isHost, userName }) {
       clearInterval(statsTimerRef.current);
       statsTimerRef.current = null;
     }
+  }
+
+  function notifyRoomFull(conn) {
+    if (!conn) return;
+    const sendAndClose = () => {
+      try { conn.send({ type: 'room-full' }); } catch (_) {}
+      try { conn.close(); } catch (_) {}
+    };
+    if (conn.open) {
+      sendAndClose();
+      return;
+    }
+    conn.on('open', sendAndClose);
+  }
+
+  function rejectIncomingCall(call) {
+    if (!call) return;
+    try { call.close(); } catch (_) {}
+  }
+
+  function handleRoomFull() {
+    if (!mountedRef.current || roomFullRef.current) return;
+    roomFullRef.current = true;
+    setError(new Error('Room is full wait for your turn.'));
+    setStatus('full');
+    stopStatsPoll();
+    if (dataConnRef.current) {
+      try { dataConnRef.current.close(); } catch (_) {}
+      dataConnRef.current = null;
+    }
+    if (callRef.current) {
+      try { callRef.current.close(); } catch (_) {}
+      callRef.current = null;
+    }
+    if (peerRef.current) {
+      try { peerRef.current.destroy(); } catch (_) {}
+      peerRef.current = null;
+    }
+    stopStream(localStreamRef.current);
+    localStreamRef.current = null;
+    remoteStreamRef.current = null;
+    setHasLocal(false);
+    setHasRemote(false);
   }
 
   // ---- Attach streams to DOM ----
@@ -484,6 +564,29 @@ export default function VideoCall({ roomId, isHost, userName }) {
           <div className="flex gap-3 justify-center">
             <button onClick={() => router.reload()} className="btn-ghost">Retry</button>
             <button onClick={() => router.replace('/')} className="btn-primary">Home</button>
+          </div>
+        </div>
+      </CallShell>
+    );
+  }
+
+  if (status === 'full') {
+    return (
+      <CallShell roomId={roomId}>
+        <div className="card max-w-lg w-full mx-auto text-center">
+          <div className="font-body text-xs tracking-[0.2em] text-signal mb-2">// ROOM FULL</div>
+          <h2 className="font-display text-4xl mb-3">Room is full wait for your turn.</h2>
+          <p className="text-bone-200/70 mb-6">
+            The meeting <span className="font-body text-bone-100">{displayCode}</span>{' '}
+            already has two people. Try again once a slot opens.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button onClick={() => router.reload()} className="btn-primary">
+              Try again
+            </button>
+            <button onClick={() => router.replace('/')} className="btn-ghost">
+              Home
+            </button>
           </div>
         </div>
       </CallShell>
