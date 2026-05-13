@@ -73,3 +73,10 @@
 - PeerJS public broker is best-effort. Production usage should self-host.
 - Mobile Safari can be finicky about `autoplay` + `playsInline`; both attrs are set explicitly.
 - `RTCRtpSender.setParameters` is sometimes rejected mid-call; we swallow the error rather than fail the call.
+
+## 2026-05-13 — Room capacity guard
+
+- Added a room-full path: the host accepts only the first peer id it sees and rejects any extra
+  callers by sending a `room-full` data message and closing their connections.
+- Guests show a "Room is full. Wait for your turn." screen and clean up media/peer state without
+  marking the room expired so they can retry later.
