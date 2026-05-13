@@ -437,7 +437,7 @@ export default function VideoCall({ roomId, isHost, userName }) {
   function handleRoomFull() {
     if (!mountedRef.current || roomFullRef.current) return;
     roomFullRef.current = true;
-    setError(new Error('Room is full, wait for your turn.'));
+    setError(new Error('Room is full, wait for your turn'));
     setStatus('full');
     stopStatsPoll();
     if (dataConnRef.current) {
@@ -576,11 +576,10 @@ export default function VideoCall({ roomId, isHost, userName }) {
       <CallShell roomId={roomId}>
         <div className="card max-w-lg w-full mx-auto text-center">
           <div className="font-body text-xs tracking-[0.2em] text-signal mb-2">// ROOM FULL</div>
-          <h2 className="font-display text-4xl mb-3">Room is full.</h2>
+          <h2 className="font-display text-4xl mb-3">Room is full, wait for your turn.</h2>
           <p className="text-bone-200/70 mb-6">
-            Room is full, wait for your turn. The meeting{' '}
-            <span className="font-body text-bone-100">{displayCode}</span> already has two people.
-            Try again once a slot opens.
+            The meeting <span className="font-body text-bone-100">{displayCode}</span> already has
+            two people. Try again once a slot opens.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button onClick={() => router.reload()} className="btn-primary">
