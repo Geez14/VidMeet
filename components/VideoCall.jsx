@@ -58,6 +58,7 @@ export default function VideoCall({ roomId, isHost, userName }) {
   const lastBytesRef = useRef({ ts: 0, bytes: 0, framesDecoded: 0, frameTs: 0 });
   const mountedRef = useRef(true);
   const activePeerIdRef = useRef(null);
+  const pendingPeerIdRef = useRef(null);
   const roomFullRef = useRef(false);
 
   // ---- Validation ----
@@ -197,10 +198,15 @@ export default function VideoCall({ roomId, isHost, userName }) {
   // ---- Host: accept incoming call + data conn ----
   function setupHostHandlers(peer, stream) {
     peer.on('call', (incoming) => {
-      if (activePeerIdRef.current && activePeerIdRef.current !== incoming.peer) {
+      if (isDifferentPeer(activePeerIdRef.current, incoming.peer)) {
         rejectIncomingCall(incoming);
         return;
       }
+      if (isDifferentPeer(pendingPeerIdRef.current, incoming.peer)) {
+        rejectIncomingCall(incoming);
+        return;
+      }
+      pendingPeerIdRef.current = null;
       if (!activePeerIdRef.current) {
         activePeerIdRef.current = incoming.peer;
       }
@@ -214,8 +220,16 @@ export default function VideoCall({ roomId, isHost, userName }) {
     });
 
     peer.on('connection', (conn) => {
-      if (!activePeerIdRef.current) {
-        activePeerIdRef.current = conn.peer;
+      if (isDifferentPeer(activePeerIdRef.current, conn.peer)) {
+        notifyRoomFull(conn);
+        return;
+      }
+      if (isDifferentPeer(pendingPeerIdRef.current, conn.peer)) {
+        notifyRoomFull(conn);
+        return;
+      }
+      if (!activePeerIdRef.current && !pendingPeerIdRef.current) {
+        pendingPeerIdRef.current = conn.peer;
       }
       attachDataConn(conn);
     });
@@ -300,10 +314,6 @@ export default function VideoCall({ roomId, isHost, userName }) {
 
   function attachDataConn(conn) {
     if (!conn) return;
-    if (isHost && activePeerIdRef.current && activePeerIdRef.current !== conn.peer) {
-      notifyRoomFull(conn);
-      return;
-    }
     dataConnRef.current = conn;
 
     conn.on('open', () => {
@@ -331,6 +341,7 @@ export default function VideoCall({ roomId, isHost, userName }) {
     conn.on('close', () => {
       dataConnRef.current = null;
       clearActivePeerIfMatchesForHost(conn.peer, { requireNoCall: true });
+      clearPendingPeerIfMatchesForHost(conn.peer, { requireNoCall: true });
     });
     conn.on('error', () => {
       // non-fatal; data channel is just for niceties
@@ -412,6 +423,17 @@ export default function VideoCall({ roomId, isHost, userName }) {
     activePeerIdRef.current = null;
   }
 
+  function clearPendingPeerIfMatchesForHost(peerId, options = {}) {
+    if (!isHost) return;
+    if (pendingPeerIdRef.current !== peerId) return;
+    if (options.requireNoCall && callRef.current) return;
+    pendingPeerIdRef.current = null;
+  }
+
+  function isDifferentPeer(currentPeerId, incomingPeerId) {
+    return currentPeerId && currentPeerId !== incomingPeerId;
+  }
+
   function notifyRoomFull(conn) {
     if (!conn) return;
     const sendAndClose = () => {
@@ -433,7 +455,7 @@ export default function VideoCall({ roomId, isHost, userName }) {
   function handleRoomFull() {
     if (!mountedRef.current || roomFullRef.current) return;
     roomFullRef.current = true;
-    setError(new Error('Room is full, wait for your turn'));
+    setError(new Error('Room is full. Wait for your turn.'));
     setStatus('full');
     stopStatsPoll();
     if (dataConnRef.current) {
@@ -572,7 +594,7 @@ export default function VideoCall({ roomId, isHost, userName }) {
       <CallShell roomId={roomId}>
         <div className="card max-w-lg w-full mx-auto text-center">
           <div className="font-body text-xs tracking-[0.2em] text-signal mb-2">// ROOM FULL</div>
-          <h2 className="font-display text-4xl mb-3">Room is full, wait for your turn.</h2>
+          <h2 className="font-display text-4xl mb-3">Room is full. Wait for your turn.</h2>
           <p className="text-bone-200/70 mb-6">
             The meeting <span className="font-body text-bone-100">{displayCode}</span> already has
             two people. Try again once a slot opens.

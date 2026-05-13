@@ -76,4 +76,7 @@
 
 ## 2026-05-13 — Room capacity guard
 
-- Added a room-full path: the host accepts only the first peer id it sees and rejects any additional callers by sending a `room-full` data message, closing their connections, and letting the guest show a "Room is full, wait for your turn" screen. Guests clean up media/peer state without marking the room expired so they can retry later.
+- Added a room-full path: the host accepts only the first peer id it sees and rejects any extra
+  callers by sending a `room-full` data message and closing their connections.
+- Guests show a "Room is full. Wait for your turn." screen and clean up media/peer state without
+  marking the room expired so they can retry later.
