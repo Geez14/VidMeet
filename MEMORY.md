@@ -80,3 +80,8 @@
   callers by sending a `room-full` data message and closing their connections.
 - Guests show a "Room is full. Wait for your turn." screen and clean up media/peer state without
   marking the room expired so they can retry later.
+
+## 2026-05-14 — SEO meta tags
+
+- Added global SEO-focused meta tags (keywords, robots, Open Graph, Twitter card) in `_app.js`,
+  with optional canonical/og:url support via `NEXT_PUBLIC_SITE_URL`.
