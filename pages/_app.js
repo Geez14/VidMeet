@@ -1,6 +1,7 @@
 import '@/styles/globals.css';
 import Head from 'next/head';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { Analytics } from '@vercel/analytics/next';
 
 export default function App({ Component, pageProps }) {
   const siteTitle = 'VidMeet — quiet, fast 2-person video.';
@@ -33,6 +34,7 @@ export default function App({ Component, pageProps }) {
       <ErrorBoundary>
         <Component {...pageProps} />
       </ErrorBoundary>
+      <Analytics />
     </>
   );
 }
